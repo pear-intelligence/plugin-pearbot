@@ -26,6 +26,7 @@ export class PearBotManager extends EventEmitter {
   private portRangeStart: number
   private portRangeEnd: number
   private maxConcurrentBuilds: number
+  private publicHost: string
   private reminderInterval: ReturnType<typeof setInterval> | null = null
   private cleanupInterval: ReturnType<typeof setInterval> | null = null
   private stalledCheckInterval: ReturnType<typeof setInterval> | null = null
@@ -41,6 +42,7 @@ export class PearBotManager extends EventEmitter {
     this.portRangeStart = ctx.getSetting<number>("portRangeStart") || 4000
     this.portRangeEnd = ctx.getSetting<number>("portRangeEnd") || 4999
     this.maxConcurrentBuilds = ctx.getSetting<number>("maxConcurrentBuilds") || 3
+    this.publicHost = ctx.getSetting<string>("publicHost") || ""
     this.claudeMdPath = join(
       resolve(process.cwd(), "plugins", "pearbot"),
       "CLAUDE.md"
@@ -331,7 +333,9 @@ export class PearBotManager extends EventEmitter {
     project.updatedAt = new Date().toISOString()
     this.saveProject(project)
 
-    const url = `http://localhost:${port}`
+    const host = this.publicHost || "localhost"
+    const protocol = this.publicHost ? "https" : "http"
+    const url = `${protocol}://${host}:${port}`
     return { port, url }
   }
 

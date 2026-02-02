@@ -43,6 +43,13 @@
       "description": "End of port range for dev servers",
       "type": "number",
       "default": 4999
+    },
+    {
+      "key": "publicHost",
+      "label": "Public Host",
+      "description": "Public hostname for serve URLs (e.g. 'pear.christopherallen.dev'). Uses localhost if empty.",
+      "type": "string",
+      "default": ""
     }
   ],
   "dependencies": []
