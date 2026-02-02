@@ -353,8 +353,7 @@ export class PearBotManager extends EventEmitter {
     this.saveProject(project)
 
     const host = this.publicHost || "localhost"
-    const protocol = this.publicHost ? "https" : "http"
-    const url = `${protocol}://${host}:${port}`
+    const url = `http://${host}:${port}`
     return { port, url }
   }
 
