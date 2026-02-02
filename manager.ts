@@ -751,17 +751,25 @@ export class PearBotManager extends EventEmitter {
   }
 
   private detectServeCommand(directory: string): string {
+    const bindAll = this.publicHost ? true : false
     const pkgPath = join(directory, "package.json")
     if (existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
-        if (pkg.scripts?.dev) return "npm run dev"
-        if (pkg.scripts?.start) return "npm start"
-        if (pkg.scripts?.serve) return "npm run serve"
+        // Detect Next.js
+        const isNext = pkg.dependencies?.next || pkg.devDependencies?.next
+        const hostFlag = bindAll ? (isNext ? " -H 0.0.0.0" : "") : ""
+        if (pkg.scripts?.dev) return `npm run dev${hostFlag}`
+        if (pkg.scripts?.start) return `npm start${hostFlag}`
+        if (pkg.scripts?.serve) return `npm run serve${hostFlag}`
       } catch { /* Fall through */ }
     }
-    if (existsSync(join(directory, "manage.py"))) return "python manage.py runserver"
-    if (existsSync(join(directory, "app.py"))) return "python app.py"
+    if (existsSync(join(directory, "manage.py"))) {
+      return bindAll ? "python manage.py runserver 0.0.0.0" : "python manage.py runserver"
+    }
+    if (existsSync(join(directory, "app.py"))) {
+      return bindAll ? "python app.py --host 0.0.0.0" : "python app.py"
+    }
     return "npm start"
   }
 
