@@ -1,0 +1,49 @@
+{
+  "name": "project-builder",
+  "displayName": "Project Builder",
+  "version": "1.0.0",
+  "description": "Spawns autonomous Claude Code agents to build complete software projects from scratch, with real-time progress updates and interactive Q&A through chat.",
+  "author": "pearintelligence",
+  "icon": "hammer.fill",
+  "main": "index.ts",
+  "capabilities": {
+    "routes": true,
+    "tools": true,
+    "webhooks": false,
+    "scheduled": true
+  },
+  "hotReloadable": false,
+  "settings": [
+    {
+      "key": "projectsDir",
+      "label": "Projects Directory",
+      "description": "Directory where project files are created (relative to server root)",
+      "type": "string",
+      "default": "projects"
+    },
+    {
+      "key": "maxConcurrentBuilds",
+      "label": "Max Concurrent Builds",
+      "description": "Maximum number of builder agents that can run simultaneously",
+      "type": "number",
+      "default": 3,
+      "min": 1,
+      "max": 10
+    },
+    {
+      "key": "portRangeStart",
+      "label": "Port Range Start",
+      "description": "Start of port range for dev servers",
+      "type": "number",
+      "default": 4000
+    },
+    {
+      "key": "portRangeEnd",
+      "label": "Port Range End",
+      "description": "End of port range for dev servers",
+      "type": "number",
+      "default": 4999
+    }
+  ],
+  "dependencies": []
+}
