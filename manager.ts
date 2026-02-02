@@ -375,6 +375,7 @@ export class PearBotManager extends EventEmitter {
     const args = [
       "-p",
       "--verbose",
+      "--dangerously-skip-permissions",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
     ]
