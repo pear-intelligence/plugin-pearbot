@@ -758,7 +758,7 @@ export class PearBotManager extends EventEmitter {
         const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
         // Detect Next.js
         const isNext = pkg.dependencies?.next || pkg.devDependencies?.next
-        const hostFlag = bindAll ? (isNext ? " --hostname 0.0.0.0" : "") : ""
+        const hostFlag = bindAll ? (isNext ? " -- --hostname 0.0.0.0" : "") : ""
         if (pkg.scripts?.dev) return `npm run dev${hostFlag}`
         if (pkg.scripts?.start) return `npm start${hostFlag}`
         if (pkg.scripts?.serve) return `npm run serve${hostFlag}`
