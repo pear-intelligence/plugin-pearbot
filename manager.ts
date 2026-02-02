@@ -299,14 +299,16 @@ export class PearBotManager extends EventEmitter {
     const port = await this.findAvailablePort()
     this.allocatedPorts.add(port)
 
-    const cmd = command || this.detectServeCommand(project.directory)
+    // Find the actual project root (agent may create a nested subdirectory)
+    const serveDir = this.findProjectRoot(project.directory)
+    const cmd = command || this.detectServeCommand(serveDir)
     const parts = cmd.split(" ")
 
-    this.ctx.log.info(`Serving project ${projectId} on port ${port}: ${cmd}`)
+    this.ctx.log.info(`Serving project ${projectId} on port ${port} in ${serveDir}: ${cmd}`)
 
     const env = { ...process.env, PORT: String(port) }
     const proc = spawn(parts, {
-      cwd: project.directory,
+      cwd: serveDir,
       env,
       stdin: "ignore",
       stdout: "pipe",
@@ -314,6 +316,23 @@ export class PearBotManager extends EventEmitter {
     })
 
     this.serverProcesses.set(projectId, proc)
+
+    // Wait briefly to catch immediate failures (exit 127 = command not found, etc.)
+    const earlyExit = await Promise.race([
+      proc.exited.then((code) => code),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ])
+
+    if (earlyExit !== null) {
+      this.allocatedPorts.delete(port)
+      this.serverProcesses.delete(projectId)
+      project.status = "failed"
+      project.updatedAt = new Date().toISOString()
+      this.saveProject(project)
+      throw new Error(
+        `Dev server exited immediately with code ${earlyExit}. Command: "${cmd}" in ${serveDir}`
+      )
+    }
 
     proc.exited.then((exitCode) => {
       this.ctx.log.info(`Dev server for ${projectId} exited with code ${exitCode}`)
@@ -707,6 +726,28 @@ export class PearBotManager extends EventEmitter {
       server.once("listening", () => { server.close(() => resolve(true)) })
       server.listen(port, "127.0.0.1")
     })
+  }
+
+  private findProjectRoot(directory: string): string {
+    // If package.json (or manage.py, etc.) is directly here, use this dir
+    if (existsSync(join(directory, "package.json")) || existsSync(join(directory, "manage.py"))) {
+      return directory
+    }
+    // Otherwise check one level of subdirectories (agent often creates a named subfolder)
+    try {
+      const entries = readdirSync(directory)
+      for (const entry of entries) {
+        const sub = join(directory, entry)
+        try {
+          if (statSync(sub).isDirectory() && !entry.startsWith(".") && entry !== "node_modules") {
+            if (existsSync(join(sub, "package.json")) || existsSync(join(sub, "manage.py"))) {
+              return sub
+            }
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* fall through */ }
+    return directory
   }
 
   private detectServeCommand(directory: string): string {
