@@ -1,14 +1,14 @@
 /**
- * Project Builder Plugin
+ * PearBot Plugin
  * Spawns autonomous Claude Code agents to build complete software projects
  * from scratch, with real-time progress updates and interactive Q&A.
  */
 
 import type { PluginContext, PluginRegistrations } from "./types"
-import { ProjectBuilderManager } from "./manager"
+import { PearBotManager } from "./manager"
 import { Elysia } from "elysia"
 
-let manager: ProjectBuilderManager | null = null
+let manager: PearBotManager | null = null
 
 function ok(text: string) {
   return { content: [{ type: "text" as const, text }], isError: false }
@@ -19,9 +19,9 @@ function err(text: string) {
 }
 
 export async function activate(ctx: PluginContext): Promise<PluginRegistrations> {
-  ctx.log.info("Activating project-builder plugin")
+  ctx.log.info("Activating PearBot plugin")
 
-  manager = new ProjectBuilderManager(ctx)
+  manager = new PearBotManager(ctx)
   await manager.init()
 
   return {
@@ -47,10 +47,10 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         }),
 
     tools: [
-      // ── project_create ────────────────────────────────────
+      // ── pearbot_create ────────────────────────────────────
       {
         definition: {
-          name: "project_create",
+          name: "pearbot_create",
           description:
             "Start building a new software project from scratch. Spawns an autonomous Claude Code agent that will scaffold, code, and test the project. Progress updates and questions will appear in chat.",
           inputSchema: {
@@ -83,7 +83,7 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
               args.tech_stack as string | undefined
             )
             return ok(
-              `Project "${args.name}" created (ID: ${result.projectId}). Status: ${result.status}.\nThe builder agent is now working. You'll receive progress updates and any questions in chat.`
+              `Project "${args.name}" created (ID: ${result.projectId}). Status: ${result.status}.\nPearBot is now working. You'll receive progress updates and any questions in chat.`
             )
           } catch (e) {
             return err(e instanceof Error ? e.message : String(e))
@@ -91,12 +91,12 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_reply ─────────────────────────────────────
+      // ── pearbot_reply ─────────────────────────────────────
       {
         definition: {
-          name: "project_reply",
+          name: "pearbot_reply",
           description:
-            "Send a reply to a project builder agent that is waiting for input. Use this when a builder asks a clarifying question.",
+            "Send a reply to a PearBot agent that is waiting for input. Use this when a builder asks a clarifying question.",
           inputSchema: {
             type: "object" as const,
             properties: {
@@ -126,12 +126,12 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_status ────────────────────────────────────
+      // ── pearbot_status ────────────────────────────────────
       {
         definition: {
-          name: "project_status",
+          name: "pearbot_status",
           description:
-            "Check the status of one or all project builds. Shows current state and last notification.",
+            "Check the status of one or all PearBot project builds. Shows current state and last notification.",
           inputSchema: {
             type: "object" as const,
             properties: {
@@ -172,11 +172,11 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_list ──────────────────────────────────────
+      // ── pearbot_list ──────────────────────────────────────
       {
         definition: {
-          name: "project_list",
-          description: "List all projects with their current states.",
+          name: "pearbot_list",
+          description: "List all PearBot projects with their current states.",
           inputSchema: { type: "object" as const, properties: {}, required: [] },
         },
         handler: async () => {
@@ -191,10 +191,10 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_open ──────────────────────────────────────
+      // ── pearbot_open ──────────────────────────────────────
       {
         definition: {
-          name: "project_open",
+          name: "pearbot_open",
           description:
             "Resume or continue work on an existing project. Spawns a fresh agent that reads existing files for context, then performs the given task.",
           inputSchema: {
@@ -229,12 +229,12 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_stop ──────────────────────────────────────
+      // ── pearbot_stop ──────────────────────────────────────
       {
         definition: {
-          name: "project_stop",
+          name: "pearbot_stop",
           description:
-            "Stop a running build agent or dev server for a project.",
+            "Stop a running PearBot build agent or dev server for a project.",
           inputSchema: {
             type: "object" as const,
             properties: {
@@ -261,10 +261,10 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_serve ─────────────────────────────────────
+      // ── pearbot_serve ─────────────────────────────────────
       {
         definition: {
-          name: "project_serve",
+          name: "pearbot_serve",
           description:
             "Start a dev server for a completed project on an available port. Returns the URL.",
           inputSchema: {
@@ -299,10 +299,10 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
         },
       },
 
-      // ── project_files ─────────────────────────────────────
+      // ── pearbot_files ─────────────────────────────────────
       {
         definition: {
-          name: "project_files",
+          name: "pearbot_files",
           description:
             "List all files in a project directory (excludes node_modules, .git, etc.).",
           inputSchema: {
@@ -331,11 +331,10 @@ export async function activate(ctx: PluginContext): Promise<PluginRegistrations>
 
     scheduled: [
       {
-        name: "project-builder-reminder",
+        name: "pearbot-reminder",
         intervalMs: 10 * 60 * 1000,
         handler: async () => {
-          // The manager handles reminders internally via its own interval,
-          // but this ensures the plugin system knows we have scheduled work.
+          // The manager handles reminders internally via its own interval.
         },
       },
     ],

@@ -12,11 +12,11 @@ const COMPLETED_CLEANUP_MS = 30 * 60 * 1000
 const STALLED_AGENT_TIMEOUT_MS = 60 * 60 * 1000
 
 /**
- * Manages project builder Claude Code subprocesses.
+ * PearBot — Manages project builder Claude Code subprocesses.
  * Follows the BrowserbaseProcessManager pattern — spawns Claude Code CLI
  * subprocesses that communicate via NDJSON stdin/stdout.
  */
-export class ProjectBuilderManager extends EventEmitter {
+export class PearBotManager extends EventEmitter {
   private projects: Map<string, ProjectMetadata> = new Map()
   private agentProcesses: Map<string, BunSubprocess> = new Map()
   private serverProcesses: Map<string, Subprocess> = new Map()
@@ -42,7 +42,7 @@ export class ProjectBuilderManager extends EventEmitter {
     this.portRangeEnd = ctx.getSetting<number>("portRangeEnd") || 4999
     this.maxConcurrentBuilds = ctx.getSetting<number>("maxConcurrentBuilds") || 3
     this.claudeMdPath = join(
-      resolve(process.cwd(), "plugins", "project-builder"),
+      resolve(process.cwd(), "plugins", "pearbot"),
       "CLAUDE.md"
     )
 
@@ -67,7 +67,7 @@ export class ProjectBuilderManager extends EventEmitter {
     // Create DB table
     const db = this.ctx.getDb() as { run: (sql: string) => void; query: (sql: string) => { all: () => Record<string, unknown>[] } }
     db.run(`
-      CREATE TABLE IF NOT EXISTS project_builder_projects (
+      CREATE TABLE IF NOT EXISTS pearbot_projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT NOT NULL,
@@ -84,7 +84,7 @@ export class ProjectBuilderManager extends EventEmitter {
     `)
 
     // Load existing projects from DB
-    const rows = db.query("SELECT * FROM project_builder_projects").all()
+    const rows = db.query("SELECT * FROM pearbot_projects").all()
     for (const row of rows) {
       const project: ProjectMetadata = {
         id: row.id as string,
@@ -92,7 +92,7 @@ export class ProjectBuilderManager extends EventEmitter {
         description: row.description as string,
         techStack: (row.tech_stack as string) || null,
         status: (row.status as ProjectStatus) === "building" || (row.status as ProjectStatus) === "creating"
-          ? "stopped" // Mark previously-running projects as stopped on restart
+          ? "stopped"
           : row.status as ProjectStatus,
         directory: row.directory as string,
         createdAt: row.created_at as string,
@@ -110,7 +110,7 @@ export class ProjectBuilderManager extends EventEmitter {
       this.projects.set(project.id, project)
     }
 
-    this.ctx.log.info(`Project builder initialized. ${this.projects.size} existing project(s). Dir: ${this.projectsDir}`)
+    this.ctx.log.info(`PearBot initialized. ${this.projects.size} existing project(s). Dir: ${this.projectsDir}`)
   }
 
   // ── Project Creation ────────────────────────────────────────
@@ -120,7 +120,6 @@ export class ProjectBuilderManager extends EventEmitter {
     description: string,
     techStack?: string
   ): Promise<{ projectId: string; status: ProjectStatus }> {
-    // Check concurrent build limit
     const running = this.getRunningCount()
     if (running >= this.maxConcurrentBuilds) {
       throw new Error(
@@ -156,7 +155,6 @@ export class ProjectBuilderManager extends EventEmitter {
 
     this.ctx.log.info(`Creating project ${projectId}: ${name}`)
 
-    // Spawn Claude Code subprocess
     await this.spawnAgent(projectId, this.buildCreatePrompt(name, description, techStack))
 
     return { projectId, status: "creating" }
@@ -171,7 +169,6 @@ export class ProjectBuilderManager extends EventEmitter {
     const project = this.projects.get(projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    // Stop existing agent if running
     if (this.agentProcesses.has(projectId)) {
       this.killAgentProcess(projectId)
     }
@@ -295,13 +292,11 @@ export class ProjectBuilderManager extends EventEmitter {
     const project = this.projects.get(projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    // Kill existing dev server if any
     this.killServerProcess(projectId)
 
     const port = await this.findAvailablePort()
     this.allocatedPorts.add(port)
 
-    // Determine serve command
     const cmd = command || this.detectServeCommand(project.directory)
     const parts = cmd.split(" ")
 
@@ -370,7 +365,6 @@ export class ProjectBuilderManager extends EventEmitter {
     const project = this.projects.get(projectId)
     if (!project) return
 
-    // Read CLAUDE.md system prompt
     let systemPrompt = ""
     try {
       systemPrompt = readFileSync(this.claudeMdPath, "utf-8")
@@ -385,7 +379,6 @@ export class ProjectBuilderManager extends EventEmitter {
       "--output-format", "stream-json",
     ]
 
-    // Add system prompt if available
     if (systemPrompt) {
       args.push("--system-prompt", systemPrompt)
     }
@@ -400,11 +393,9 @@ export class ProjectBuilderManager extends EventEmitter {
     this.agentProcesses.set(projectId, proc)
     project.agentProcess = proc
 
-    // Start reading output streams
     this.readOutputStream(projectId)
     this.readErrorStream(projectId)
 
-    // Handle process exit
     proc.exited.then((exitCode) => {
       this.ctx.log.info(`Agent for ${projectId} exited with code: ${exitCode}`)
       this.agentProcesses.delete(projectId)
@@ -420,10 +411,8 @@ export class ProjectBuilderManager extends EventEmitter {
       }
     })
 
-    // Wait briefly for Claude Code to initialize, then send the task
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Send the initial task
     const payload =
       JSON.stringify({
         type: "user",
@@ -458,7 +447,6 @@ export class ProjectBuilderManager extends EventEmitter {
 
         project.outputBuffer += decoder.decode(value, { stream: true })
 
-        // Parse NDJSON lines
         const lines = project.outputBuffer.split("\n")
         project.outputBuffer = lines.pop() || ""
 
@@ -468,12 +456,10 @@ export class ProjectBuilderManager extends EventEmitter {
           try {
             const message = JSON.parse(line)
 
-            // Capture session ID from init
             if (message.type === "system" && message.subtype === "init" && message.session_id) {
               project.sessionId = message.session_id
             }
 
-            // Look for assistant text messages containing our XML tags
             if (message.type === "assistant") {
               const content = message.message?.content
               if (Array.isArray(content)) {
@@ -484,7 +470,6 @@ export class ProjectBuilderManager extends EventEmitter {
                       project.lastNotification = notification
                       project.updatedAt = new Date().toISOString()
 
-                      // Update status based on notification
                       if (notification.status === "success") {
                         project.status = "completed"
                         project.waitingSince = null
@@ -495,7 +480,6 @@ export class ProjectBuilderManager extends EventEmitter {
                         project.status = "waiting_for_input"
                         project.waitingSince = new Date().toISOString()
                       }
-                      // "progress" doesn't change status
 
                       this.saveProject(project)
                       this.emit("notification", { projectId, notification })
@@ -505,12 +489,10 @@ export class ProjectBuilderManager extends EventEmitter {
               }
             }
 
-            // Handle result messages (agent finished a turn)
             if (message.type === "result") {
-              // If agent finished without a success/failed tag, it may be waiting
               const p = this.projects.get(projectId)
               if (p && p.status === "building") {
-                // Agent turn ended — stays in building state, may get more turns
+                // Agent turn ended — stays in building state
               }
             }
 
@@ -540,10 +522,9 @@ export class ProjectBuilderManager extends EventEmitter {
 
         const text = decoder.decode(value, { stream: true })
         if (text.trim()) {
-          // Only log meaningful stderr, not every line
           const trimmed = text.trim()
           if (trimmed.length > 0 && !trimmed.startsWith("Debugger")) {
-            this.ctx.log.info(`[builder-stderr ${projectId}] ${trimmed.substring(0, 200)}`)
+            this.ctx.log.info(`[pearbot-stderr ${projectId}] ${trimmed.substring(0, 200)}`)
           }
         }
       }
@@ -556,7 +537,7 @@ export class ProjectBuilderManager extends EventEmitter {
 
   private parseNotification(text: string): ProjectNotification | null {
     const match = text.match(
-      /<project_builder\s+status="(\w+)"(?:\s+phase="([^"]*)")?>([\s\S]*?)<\/project_builder>/
+      /<pearbot\s+status="(\w+)"(?:\s+phase="([^"]*)")?>([\s\S]*?)<\/pearbot>/
     )
     if (!match) return null
 
@@ -580,25 +561,25 @@ export class ProjectBuilderManager extends EventEmitter {
       switch (notification.status) {
         case "clarify":
           await this.ctx.sendClaudeMessage(
-            `<system>PROJECT BUILDER ${projectLabel} needs input: ${notification.content}\nUse the project_reply tool with project_id="${projectId}" to respond.</system>`
+            `<system>PEARBOT ${projectLabel} needs input: ${notification.content}\nUse the pearbot_reply tool with project_id="${projectId}" to respond.</system>`
           )
           break
 
         case "progress":
           await this.ctx.sendClaudeMessage(
-            `<system>PROJECT BUILDER ${projectLabel} progress${notification.phase ? ` [${notification.phase}]` : ""}: ${notification.content}</system>`
+            `<system>PEARBOT ${projectLabel} progress${notification.phase ? ` [${notification.phase}]` : ""}: ${notification.content}</system>`
           )
           break
 
         case "success":
           await this.ctx.sendClaudeMessage(
-            `<system>PROJECT BUILDER ${projectLabel} completed successfully: ${notification.content}</system>`
+            `<system>PEARBOT ${projectLabel} completed successfully: ${notification.content}</system>`
           )
           break
 
         case "failed":
           await this.ctx.sendClaudeMessage(
-            `<system>PROJECT BUILDER ${projectLabel} failed: ${notification.content}</system>`
+            `<system>PEARBOT ${projectLabel} failed: ${notification.content}</system>`
           )
           break
       }
@@ -620,7 +601,7 @@ export class ProjectBuilderManager extends EventEmitter {
           .join("\n")
         try {
           await this.ctx.sendClaudeMessage(
-            `<system>REMINDER: ${waiting.length} project(s) waiting for input:\n${summaries}\nUse project_reply tool to respond.</system>`
+            `<system>REMINDER: ${waiting.length} PearBot project(s) waiting for input:\n${summaries}\nUse pearbot_reply tool to respond.</system>`
           )
         } catch {
           // Ignore send failures
@@ -631,14 +612,12 @@ export class ProjectBuilderManager extends EventEmitter {
 
   private startCleanupInterval(): void {
     this.cleanupInterval = setInterval(() => {
-      const now = Date.now()
       for (const [id, project] of this.projects) {
         if (
           (project.status === "completed" || project.status === "failed" || project.status === "stopped") &&
-          now - new Date(project.updatedAt).getTime() > COMPLETED_CLEANUP_MS
+          Date.now() - new Date(project.updatedAt).getTime() > COMPLETED_CLEANUP_MS
         ) {
           // Don't delete from disk, just remove from memory
-          // Projects persist in DB and can be reopened
         }
       }
     }, COMPLETED_CLEANUP_MS)
@@ -686,11 +665,7 @@ export class ProjectBuilderManager extends EventEmitter {
   private killAgentProcess(projectId: string): void {
     const proc = this.agentProcesses.get(projectId)
     if (proc) {
-      try {
-        proc.kill()
-      } catch {
-        // Already dead
-      }
+      try { proc.kill() } catch { /* Already dead */ }
       this.agentProcesses.delete(projectId)
     }
     const project = this.projects.get(projectId)
@@ -700,18 +675,12 @@ export class ProjectBuilderManager extends EventEmitter {
   private killServerProcess(projectId: string): void {
     const proc = this.serverProcesses.get(projectId)
     if (proc) {
-      try {
-        proc.kill()
-      } catch {
-        // Already dead
-      }
+      try { proc.kill() } catch { /* Already dead */ }
       this.serverProcesses.delete(projectId)
     }
     const project = this.projects.get(projectId)
     if (project) {
-      if (project.servingPort) {
-        this.allocatedPorts.delete(project.servingPort)
-      }
+      if (project.servingPort) this.allocatedPorts.delete(project.servingPort)
       project.servingPort = null
       project.serverProcess = null
     }
@@ -730,15 +699,12 @@ export class ProjectBuilderManager extends EventEmitter {
     return new Promise((resolve) => {
       const server = createServer()
       server.once("error", () => resolve(false))
-      server.once("listening", () => {
-        server.close(() => resolve(true))
-      })
+      server.once("listening", () => { server.close(() => resolve(true)) })
       server.listen(port, "127.0.0.1")
     })
   }
 
   private detectServeCommand(directory: string): string {
-    // Check for package.json scripts
     const pkgPath = join(directory, "package.json")
     if (existsSync(pkgPath)) {
       try {
@@ -746,39 +712,23 @@ export class ProjectBuilderManager extends EventEmitter {
         if (pkg.scripts?.dev) return "npm run dev"
         if (pkg.scripts?.start) return "npm start"
         if (pkg.scripts?.serve) return "npm run serve"
-      } catch {
-        // Fall through
-      }
+      } catch { /* Fall through */ }
     }
-
-    // Check for Python
     if (existsSync(join(directory, "manage.py"))) return "python manage.py runserver"
     if (existsSync(join(directory, "app.py"))) return "python app.py"
-
-    // Default
     return "npm start"
   }
 
   private saveProject(project: ProjectMetadata): void {
     try {
-      const db = this.ctx.getDb() as {
-        run: (sql: string, ...params: unknown[]) => void
-      }
+      const db = this.ctx.getDb() as { run: (sql: string, ...params: unknown[]) => void }
       db.run(
-        `INSERT OR REPLACE INTO project_builder_projects
+        `INSERT OR REPLACE INTO pearbot_projects
          (id, name, description, tech_stack, status, directory, serving_port, session_id, created_at, updated_at, waiting_since, last_notification_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        project.id,
-        project.name,
-        project.description,
-        project.techStack,
-        project.status,
-        project.directory,
-        project.servingPort,
-        project.sessionId,
-        project.createdAt,
-        project.updatedAt,
-        project.waitingSince,
+        project.id, project.name, project.description, project.techStack,
+        project.status, project.directory, project.servingPort, project.sessionId,
+        project.createdAt, project.updatedAt, project.waitingSince,
         project.lastNotification ? JSON.stringify(project.lastNotification) : null
       )
     } catch (error) {
@@ -787,35 +737,19 @@ export class ProjectBuilderManager extends EventEmitter {
   }
 
   private sanitizeProject(p: ProjectMetadata): ProjectMetadata {
-    return {
-      ...p,
-      agentProcess: null,
-      serverProcess: null,
-      outputBuffer: "",
-    }
+    return { ...p, agentProcess: null, serverProcess: null, outputBuffer: "" }
   }
 
   private buildCreatePrompt(name: string, description: string, techStack?: string): string {
-    const parts = [
-      `Build a complete project called "${name}".`,
-      "",
-      `Description: ${description}`,
-    ]
-    if (techStack) {
-      parts.push(`Tech stack: ${techStack}`)
-    }
-    parts.push(
-      "",
-      "Build this project from scratch in the current directory.",
-      "Follow the instructions in your system prompt for communication protocol and workflow."
-    )
+    const parts = [`Build a complete project called "${name}".`, "", `Description: ${description}`]
+    if (techStack) parts.push(`Tech stack: ${techStack}`)
+    parts.push("", "Build this project from scratch in the current directory.", "Follow the instructions in your system prompt for communication protocol and workflow.")
     return parts.join("\n")
   }
 
   private walkDir(dir: string, root: string): string[] {
     const results: string[] = []
     const skipDirs = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv"])
-
     try {
       const entries = readdirSync(dir)
       for (const entry of entries) {
@@ -830,14 +764,9 @@ export class ProjectBuilderManager extends EventEmitter {
           } else {
             results.push(relativePath)
           }
-        } catch {
-          // Skip inaccessible files
-        }
+        } catch { /* Skip inaccessible files */ }
       }
-    } catch {
-      // Directory doesn't exist or inaccessible
-    }
-
+    } catch { /* Directory doesn't exist or inaccessible */ }
     return results
   }
 }

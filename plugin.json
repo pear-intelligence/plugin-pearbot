@@ -1,6 +1,6 @@
 {
-  "name": "project-builder",
-  "displayName": "Project Builder",
+  "name": "pearbot",
+  "displayName": "PearBot",
   "version": "1.0.0",
   "description": "Spawns autonomous Claude Code agents to build complete software projects from scratch, with real-time progress updates and interactive Q&A through chat.",
   "author": "pearintelligence",
